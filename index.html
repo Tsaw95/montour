@@ -48,12 +48,13 @@ input{width:100%;padding:11px;border-radius:8px;border:1px solid var(--ln);backg
 <h1>TicketAlert</h1>
 <div class="steps" id="steps"></div>
 <div id="view"></div>
-<p class="note">Version de test : les réservations sont enregistrées sur le serveur. Les alertes automatiques arrivent à l’étape suivante.</p>
+<p class="note">Version de test : les réservations sont enregistrées sur le serveur. Si vous autorisez les notifications, l’alerte est envoyée automatiquement 30 min avant le créneau.</p>
 </main>
 
 <script>
 var SB_URL="https://vwbmehptsylctdvidkrr.supabase.co";
 var SB_KEY="sb_publishable_KgC3lftLumZyZvymVxSfnA_WldrBTFA";
+var VAPID_PUB="BADRlIrrfLDgYyZkkvQTRzm27VcPxH0UEOE1-JHlRaFHl_qJWXF8U9NidWPMGpvwdyLt-1d_NH3ZOgPyYvnFzWQ";
 var PROFIL={8:0.8,9:1.4,10:1.1,11:0.9,12:1.5,13:0.7,14:0.8,15:1.0,16:1.2};
 var OP=[{n:"Retrait",d:"Retirer de l’argent au guichet"},{n:"Dépôt",d:"Déposer espèces ou chèque"}];
 var S={step:0,ag:null,op:null,slot:null,nom:"",tel:"",code:"",fin:0,agences:null,slots:null,jour:0,err:"",busy:false,msg:""};
@@ -105,7 +106,10 @@ function valider(){
   if(!nom){$("err").textContent="Entrez votre nom.";return;}
   if(tel.length<8){$("err").textContent="Entrez un numéro de téléphone valide (8 chiffres minimum).";return;}
   S.busy=true;render();
-  api("rpc/reserver",{method:"POST",body:{p_agence:S.ag.id,p_operation:S.op,p_creneau:S.slot,p_nom:nom,p_telephone:S.tel,p_subscription:null}})
+  abonnerPush().then(function(sub){
+    S.pushOk=!!sub;
+    return api("rpc/reserver",{method:"POST",body:{p_agence:S.ag.id,p_operation:S.op,p_creneau:S.slot,p_nom:nom,p_telephone:S.tel,p_subscription:sub}});
+  })
   .then(function(code){S.busy=false;S.code=code;S.fin=0;go(4);})
   .catch(function(e){
     S.busy=false;
@@ -114,6 +118,19 @@ function valider(){
     else if(m.indexOf("creneau_invalide")>-1){S.msg="Ce créneau n’est plus disponible. Choisissez-en un autre.";S.slot=null;S.step=2;window.scrollTo(0,0);chargerSlots();}
     else{S.err="La réservation a échoué. Réessayez dans un instant.";render();}
   });
+}
+function b64ToU8(b){var p="=".repeat((4-b.length%4)%4),s=(b+p).replace(/-/g,"+").replace(/_/g,"/"),r=atob(s),o=new Uint8Array(r.length);for(var i=0;i<r.length;i++)o[i]=r.charCodeAt(i);return o;}
+function abonnerPush(){
+  if(!('serviceWorker' in navigator)||!('PushManager' in window)||!window.Notification){return Promise.resolve(null);}
+  var perm=Notification.permission==='default'?Notification.requestPermission():Promise.resolve(Notification.permission);
+  return perm.then(function(p){
+    if(p!=='granted')return null;
+    return navigator.serviceWorker.ready.then(function(reg){
+      return reg.pushManager.getSubscription().then(function(s){
+        return s||reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64ToU8(VAPID_PUB)});
+      });
+    }).then(function(s){return s.toJSON();});
+  }).catch(function(){return null;});
 }
 function alerteTest(){
   var texte=S.nom.split(" ")[0]+", c’est bientôt votre tour ! Partez maintenant pour l’"+S.ag.nom+" (créneau "+hhmm(S.slot)+"). Code : "+S.code+".";
@@ -186,9 +203,10 @@ function render(){
       '<div class="row"><span>Opération</span><span>'+esc(S.op)+'</span></div>'+
       '<div class="row"><span>Créneau</span><span>'+hhmm(S.slot)+'</span></div>'+
       '<div class="row"><span>Alerte prévue à</span><span>'+hhmmMoins(S.slot,30)+'</span></div>'+
+      '<div class="row"><span>Notification</span><span>'+(S.pushOk?'activée':'non activée')+'</span></div>'+
       '<div class="row"><span>Attente sans réservation</span><span>~'+Math.round(w)+' min</span></div>';
     if(S.fin===0){
-      h+='<button class="btn alt" onclick="alerteTest()">Simuler l’alerte (notification dans 10 s)</button>';
+      h+='<button class="btn alt" onclick="alerteTest()">Tester la notification (dans 10 s)</button>';
     }else if(S.fin===1){
       h+='<div class="sms"><b>Alerte · TicketAlert</b><br>'+esc(S.nom.split(" ")[0])+', c’est bientôt votre tour ! Partez maintenant pour l’'+esc(S.ag.nom)+' (créneau '+hhmm(S.slot)+'). Code : '+esc(S.code)+'.</div>'+
          '<button class="btn" onclick="S.fin=2;render()">Je suis arrivé</button>';
