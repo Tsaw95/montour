@@ -48,98 +48,163 @@ input{width:100%;padding:11px;border-radius:8px;border:1px solid var(--ln);backg
 <h1>TicketAlert</h1>
 <div class="steps" id="steps"></div>
 <div id="view"></div>
-<p class="note">Prototype de démonstration : les agences, les places et les alertes sont simulées.</p>
+<p class="note">Version de test : les réservations sont enregistrées sur le serveur. Les alertes automatiques arrivent à l’étape suivante.</p>
 </main>
 
 <script>
-var AG=[{n:"Agence Centre-ville",d:"Avenue principale"},{n:"Agence Marché central",d:"Près du grand marché"},{n:"Agence Zone commerciale",d:"Quartier des affaires"}];
-var OP=[{n:"Retrait",d:"Retirer de l’argent au guichet"},{n:"Dépôt",d:"Déposer espèces ou chèque"}];
+var SB_URL="https://vwbmehptsylctdvidkrr.supabase.co";
+var SB_KEY="sb_publishable_KgC3lftLumZyZvymVxSfnA_WldrBTFA";
 var PROFIL={8:0.8,9:1.4,10:1.1,11:0.9,12:1.5,13:0.7,14:0.8,15:1.0,16:1.2};
-var S={step:0,ag:null,op:null,slot:null,nom:"",tel:"",code:"",fin:0};
+var OP=[{n:"Retrait",d:"Retirer de l’argent au guichet"},{n:"Dépôt",d:"Déposer espèces ou chèque"}];
+var S={step:0,ag:null,op:null,slot:null,nom:"",tel:"",code:"",fin:0,agences:null,slots:null,jour:0,err:"",busy:false,msg:""};
 function $(i){return document.getElementById(i);}
 function pad(n){return n<10?"0"+n:""+n;}
-function fmt(m){m=Math.round(m);return Math.floor(m/60)+"h"+pad(m%60);}
-function slots(){
-  var out=[],i=0,m;
-  for(m=480;m<=990;m+=30){
-    var h=Math.floor(m/60);
-    var pris=(i*3+S.ag*2+(S.op||0))%7;if(pris>6)pris=6;
-    out.push({m:m,libres:6-pris,wait:12*PROFIL[h]*3.5/3});
-    i++;
-  }
-  return out;
+function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
+function hhmm(iso){var d=new Date(iso);return pad(d.getUTCHours())+"h"+pad(d.getUTCMinutes());}
+function hhmmMoins(iso,min){return hhmm(new Date(new Date(iso).getTime()-min*60000).toISOString());}
+function dateJour(n){return new Date(Date.now()+n*86400000).toISOString().slice(0,10);}
+
+function api(path,opts){
+  opts=opts||{};
+  return fetch(SB_URL+"/rest/v1/"+path,{
+    method:opts.method||"GET",
+    headers:{"apikey":SB_KEY,"Content-Type":"application/json"},
+    body:opts.body?JSON.stringify(opts.body):undefined
+  }).then(function(r){
+    return r.text().then(function(t){
+      var j=null;try{j=t?JSON.parse(t):null;}catch(e){}
+      if(!r.ok){throw new Error((j&&(j.message||j.error))||("Erreur "+r.status));}
+      return j;
+    });
+  });
+}
+function chargerAgences(){
+  S.err="";
+  api("agences?select=id,nom,description&order=id").then(function(l){S.agences=l;render();})
+  .catch(function(e){S.err="Impossible de joindre le serveur. Vérifiez votre connexion.";render();});
+}
+function chargerSlots(){
+  S.err="";S.slots=null;render();
+  api("rpc/places",{method:"POST",body:{p_agence:S.ag.id,p_operation:S.op,p_jour:dateJour(S.jour)}})
+  .then(function(l){S.slots=l;render();})
+  .catch(function(e){S.err="Impossible de charger les créneaux.";render();});
 }
 function steps(){
   var h="";for(var i=0;i<5;i++)h+='<i class="'+(i<=S.step?'on':'')+'"></i>';
   $("steps").innerHTML=h;
 }
 function back(to){return '<button class="link" onclick="go('+to+')">← Retour</button>';}
-function go(n){S.step=n;render();window.scrollTo(0,0);}
-function pickAg(i){S.ag=i;go(1);}
-function pickOp(i){S.op=i;S.slot=null;go(2);}
-function pickSlot(m){S.slot=m;render();}
+function go(n){S.step=n;S.err="";S.msg="";render();window.scrollTo(0,0);}
+function pickAg(i){S.ag=S.agences[i];go(1);}
+function pickOp(i){S.op=OP[i].n;S.slot=null;S.step=2;S.msg="";window.scrollTo(0,0);chargerSlots();}
+function pickJour(n){S.jour=n;S.slot=null;chargerSlots();}
+function pickSlot(iso){S.slot=iso;render();}
 function valider(){
   var nom=$("nom").value.trim(),tel=$("tel").value.replace(/\D/g,"");
+  S.nom=nom;S.tel=$("tel").value.trim();
   if(!nom){$("err").textContent="Entrez votre nom.";return;}
   if(tel.length<8){$("err").textContent="Entrez un numéro de téléphone valide (8 chiffres minimum).";return;}
-  S.nom=nom;S.tel=$("tel").value.trim();
-  S.code="TA-"+(1000+Math.floor(Math.random()*9000));
-  S.fin=0;go(4);
+  S.busy=true;render();
+  api("rpc/reserver",{method:"POST",body:{p_agence:S.ag.id,p_operation:S.op,p_creneau:S.slot,p_nom:nom,p_telephone:S.tel,p_subscription:null}})
+  .then(function(code){S.busy=false;S.code=code;S.fin=0;go(4);})
+  .catch(function(e){
+    S.busy=false;
+    var m=e.message||"";
+    if(m.indexOf("complet")>-1){S.msg="Ce créneau vient d’être complété. Choisissez-en un autre.";S.slot=null;S.step=2;window.scrollTo(0,0);chargerSlots();}
+    else if(m.indexOf("creneau_invalide")>-1){S.msg="Ce créneau n’est plus disponible. Choisissez-en un autre.";S.slot=null;S.step=2;window.scrollTo(0,0);chargerSlots();}
+    else{S.err="La réservation a échoué. Réessayez dans un instant.";render();}
+  });
+}
+function alerteTest(){
+  var texte=S.nom.split(" ")[0]+", c’est bientôt votre tour ! Partez maintenant pour l’"+S.ag.nom+" (créneau "+hhmm(S.slot)+"). Code : "+S.code+".";
+  function planifier(){
+    setTimeout(function(){
+      if('serviceWorker' in navigator){
+        navigator.serviceWorker.ready.then(function(r){
+          r.showNotification('TicketAlert',{body:texte,icon:'icon-192.png',badge:'icon-192.png',vibrate:[200,100,200],tag:'ticketalert'});
+        });
+      }else if(window.Notification&&Notification.permission==='granted'){
+        new Notification('TicketAlert',{body:texte});
+      }
+    },10000);
+  }
+  S.fin=1;render();
+  if(window.Notification){
+    if(Notification.permission==='granted'){planifier();}
+    else if(Notification.permission!=='denied'){
+      Notification.requestPermission().then(function(p){if(p==='granted')planifier();});
+    }
+  }
+}
+function erreurBloc(retry){
+  return '<div class="card"><div class="err">'+esc(S.err)+'</div><button class="btn" onclick="'+retry+'">Réessayer</button></div>';
 }
 function render(){
   steps();
   var v=$("view"),h="",i;
   if(S.step===0){
-    h='<div class="card"><h2>1. Choisissez votre agence</h2>';
-    for(i=0;i<AG.length;i++)h+='<button class="opt" onclick="pickAg('+i+')">'+AG[i].n+'<small>'+AG[i].d+'</small></button>';
-    h+='</div>';
+    if(S.err){h=erreurBloc("chargerAgences()");}
+    else if(!S.agences){h='<div class="card">Chargement des agences…</div>';}
+    else{
+      h='<div class="card"><h2>1. Choisissez votre agence</h2>';
+      for(i=0;i<S.agences.length;i++)h+='<button class="opt" onclick="pickAg('+i+')">'+esc(S.agences[i].nom)+'<small>'+esc(S.agences[i].description||"")+'</small></button>';
+      h+='</div>';
+    }
   }else if(S.step===1){
     h='<div class="card">'+back(0)+'<h2>2. Quelle opération ?</h2>';
     for(i=0;i<OP.length;i++)h+='<button class="opt" onclick="pickOp('+i+')">'+OP[i].n+'<small>'+OP[i].d+'</small></button>';
     h+='</div>';
   }else if(S.step===2){
-    var sl=slots();
-    h='<div class="card">'+back(1)+'<h2>3. Choisissez un créneau</h2><div class="grid">';
-    for(i=0;i<sl.length;i++){
-      var s=sl[i],full=s.libres<=0;
-      h+='<button class="slot'+(S.slot===s.m?' sel':'')+'"'+(full?' disabled':'')+' onclick="pickSlot('+s.m+')">'+fmt(s.m)+'<small>'+(full?'Complet':s.libres+' place'+(s.libres>1?'s':''))+'</small></button>';
+    h='<div class="card">'+back(1)+'<h2>3. Choisissez un créneau</h2>';
+    if(S.msg)h+='<div class="err">'+esc(S.msg)+'</div>';
+    h+='<div style="display:flex;gap:8px;margin-bottom:10px">'+
+       '<button class="slot'+(S.jour===0?' sel':'')+'" style="flex:1" onclick="pickJour(0)">Aujourd’hui</button>'+
+       '<button class="slot'+(S.jour===1?' sel':'')+'" style="flex:1" onclick="pickJour(1)">Demain</button></div>';
+    if(S.err){h+='<div class="err">'+esc(S.err)+'</div><button class="btn" onclick="chargerSlots()">Réessayer</button>';}
+    else if(!S.slots){h+='<p>Chargement des créneaux…</p>';}
+    else{
+      h+='<div class="grid">';
+      for(i=0;i<S.slots.length;i++){
+        var s=S.slots[i],passe=new Date(s.creneau).getTime()<Date.now(),full=s.libres<=0,off=passe||full;
+        h+='<button class="slot'+(S.slot===s.creneau?' sel':'')+'"'+(off?' disabled':'')+' onclick="pickSlot(\''+s.creneau+'\')">'+hhmm(s.creneau)+'<small>'+(passe?'Passé':full?'Complet':s.libres+' place'+(s.libres>1?'s':''))+'</small></button>';
+      }
+      h+='</div>';
+      if(S.slot!==null)h+='<button class="btn" onclick="go(3)">Continuer avec '+hhmm(S.slot)+'</button>';
     }
-    h+='</div>';
-    if(S.slot!==null)h+='<button class="btn" onclick="go(3)">Continuer avec '+fmt(S.slot)+'</button>';
     h+='</div>';
   }else if(S.step===3){
     h='<div class="card">'+back(2)+'<h2>4. Vos informations</h2>'+
-      '<input id="nom" placeholder="Nom et prénom" value="'+S.nom.replace(/"/g,"&quot;")+'">'+
-      '<input id="tel" type="tel" placeholder="Téléphone (pour l’alerte SMS)" value="'+S.tel.replace(/"/g,"&quot;")+'">'+
-      '<div class="err" id="err"></div>'+
-      '<button class="btn" onclick="valider()">Réserver mon ticket</button></div>';
+      '<input id="nom" placeholder="Nom et prénom" value="'+esc(S.nom)+'">'+
+      '<input id="tel" type="tel" placeholder="Téléphone (pour l’alerte)" value="'+esc(S.tel)+'">'+
+      '<div class="err" id="err">'+esc(S.err)+'</div>'+
+      '<button class="btn"'+(S.busy?' disabled':'')+' onclick="valider()">'+(S.busy?'Réservation en cours…':'Réserver mon ticket')+'</button></div>';
   }else{
-    var hh=Math.min(16,Math.max(8,Math.floor(S.slot/60)));
+    var hh=Math.min(16,Math.max(8,new Date(S.slot).getUTCHours()));
     var w=12*PROFIL[hh]*3.5/3;
-    var alerte=S.slot-30;
-    h='<div class="card ticket"><h2>Votre ticket virtuel</h2><div class="code">'+S.code+'</div>'+
-      '<div class="row"><span>Agence</span><span>'+AG[S.ag].n+'</span></div>'+
-      '<div class="row"><span>Opération</span><span>'+OP[S.op].n+'</span></div>'+
-      '<div class="row"><span>Créneau</span><span>'+fmt(S.slot)+'</span></div>'+
-      '<div class="row"><span>Alerte envoyée à</span><span>'+fmt(alerte)+'</span></div>'+
+    h='<div class="card ticket"><h2>Votre ticket virtuel</h2><div class="code">'+esc(S.code)+'</div>'+
+      '<div class="row"><span>Agence</span><span>'+esc(S.ag.nom)+'</span></div>'+
+      '<div class="row"><span>Opération</span><span>'+esc(S.op)+'</span></div>'+
+      '<div class="row"><span>Créneau</span><span>'+hhmm(S.slot)+'</span></div>'+
+      '<div class="row"><span>Alerte prévue à</span><span>'+hhmmMoins(S.slot,30)+'</span></div>'+
       '<div class="row"><span>Attente sans réservation</span><span>~'+Math.round(w)+' min</span></div>';
     if(S.fin===0){
-      h+='<button class="btn alt" onclick="S.fin=1;render()">Simuler l’alerte SMS</button>';
+      h+='<button class="btn alt" onclick="alerteTest()">Simuler l’alerte (notification dans 10 s)</button>';
     }else if(S.fin===1){
-      h+='<div class="sms"><b>SMS · TicketAlert</b><br>'+S.nom.split(" ")[0]+', c’est bientôt votre tour ! Partez maintenant pour l’'+AG[S.ag].n+' (créneau '+fmt(S.slot)+'). Code : '+S.code+'.</div>'+
+      h+='<div class="sms"><b>Alerte · TicketAlert</b><br>'+esc(S.nom.split(" ")[0])+', c’est bientôt votre tour ! Partez maintenant pour l’'+esc(S.ag.nom)+' (créneau '+hhmm(S.slot)+'). Code : '+esc(S.code)+'.</div>'+
          '<button class="btn" onclick="S.fin=2;render()">Je suis arrivé</button>';
     }else if(S.fin===2){
-      h+='<div class="sms"><span class="ok">Arrivée confirmée.</span><br>Présentez le code <b>'+S.code+'</b> à l’accueil pour le passage prioritaire.</div>'+
+      h+='<div class="sms"><span class="ok">Arrivée confirmée.</span><br>Présentez le code <b>'+esc(S.code)+'</b> à l’accueil pour le passage prioritaire.</div>'+
          '<button class="btn" onclick="S.fin=3;render()">J’ai été servi</button>';
     }else{
-      h+='<div class="sms"><span class="ok">Merci !</span> Votre temps d’attente réel aide à rendre les estimations plus précises pour les prochains clients.</div>'+
-         '<button class="btn alt" onclick="S={step:0,ag:null,op:null,slot:null,nom:\'\',tel:\'\',code:\'\',fin:0};render()">Nouvelle réservation</button>';
+      h+='<div class="sms"><span class="ok">Merci !</span> Votre temps d’attente réel aide à rendre les estimations plus précises.</div>'+
+         '<button class="btn alt" onclick="S.step=0;S.ag=null;S.op=null;S.slot=null;S.code=\'\';S.fin=0;S.jour=0;render()">Nouvelle réservation</button>';
     }
     h+='</div>';
   }
   v.innerHTML=h;
 }
 render();
+chargerAgences();
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('./sw.js').catch(function(){});});}
 </script>
 </body>
