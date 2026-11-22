@@ -48,7 +48,7 @@ input{width:100%;padding:11px;border-radius:8px;border:1px solid var(--ln);backg
 <h1>TicketAlert</h1>
 <div class="steps" id="steps"></div>
 <div id="view"></div>
-<p class="note">Version de test : les réservations sont enregistrées sur le serveur. Si vous autorisez les notifications, l’alerte est envoyée automatiquement 30 min avant le créneau.</p>
+<p class="note">Version de test : les réservations sont enregistrées sur le serveur. L’alerte est envoyée automatiquement 30 min avant le créneau, par notification et/ou SMS selon votre choix.</p>
 </main>
 
 <script>
@@ -57,7 +57,7 @@ var SB_KEY="sb_publishable_KgC3lftLumZyZvymVxSfnA_WldrBTFA";
 var VAPID_PUB="BADRlIrrfLDgYyZkkvQTRzm27VcPxH0UEOE1-JHlRaFHl_qJWXF8U9NidWPMGpvwdyLt-1d_NH3ZOgPyYvnFzWQ";
 var PROFIL={8:0.8,9:1.4,10:1.1,11:0.9,12:1.5,13:0.7,14:0.8,15:1.0,16:1.2};
 var OP=[{n:"Retrait",d:"Retirer de l’argent au guichet"},{n:"Dépôt",d:"Déposer espèces ou chèque"}];
-var S={step:0,ag:null,op:null,slot:null,nom:"",tel:"",code:"",fin:0,agences:null,slots:null,jour:0,err:"",busy:false,msg:""};
+var S={canal:"push",canalFinal:"push",step:0,ag:null,op:null,slot:null,nom:"",tel:"",code:"",fin:0,agences:null,slots:null,jour:0,err:"",busy:false,msg:""};
 function $(i){return document.getElementById(i);}
 function pad(n){return n<10?"0"+n:""+n;}
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];});}
@@ -100,15 +100,19 @@ function pickAg(i){S.ag=S.agences[i];go(1);}
 function pickOp(i){S.op=OP[i].n;S.slot=null;S.step=2;S.msg="";window.scrollTo(0,0);chargerSlots();}
 function pickJour(n){S.jour=n;S.slot=null;chargerSlots();}
 function pickSlot(iso){S.slot=iso;render();}
+function pickCanal(c){var n=$("nom"),t=$("tel");if(n)S.nom=n.value;if(t)S.tel=t.value;S.canal=c;render();}
 function valider(){
   var nom=$("nom").value.trim(),tel=$("tel").value.replace(/\D/g,"");
   S.nom=nom;S.tel=$("tel").value.trim();
   if(!nom){$("err").textContent="Entrez votre nom.";return;}
   if(tel.length<8){$("err").textContent="Entrez un numéro de téléphone valide (8 chiffres minimum).";return;}
   S.busy=true;render();
-  abonnerPush().then(function(sub){
+  (S.canal==="sms"?Promise.resolve(null):abonnerPush()).then(function(sub){
     S.pushOk=!!sub;
-    return api("rpc/reserver",{method:"POST",body:{p_agence:S.ag.id,p_operation:S.op,p_creneau:S.slot,p_nom:nom,p_telephone:S.tel,p_subscription:sub}});
+    var c=S.canal;
+    if(c!=="sms"&&!sub){c="sms";}
+    S.canalFinal=c;
+    return api("rpc/reserver",{method:"POST",body:{p_agence:S.ag.id,p_operation:S.op,p_creneau:S.slot,p_nom:nom,p_telephone:S.tel,p_subscription:(c==="sms"?null:sub),p_canal:c}});
   })
   .then(function(code){S.busy=false;S.code=code;S.fin=0;go(4);})
   .catch(function(e){
@@ -116,6 +120,7 @@ function valider(){
     var m=e.message||"";
     if(m.indexOf("complet")>-1){S.msg="Ce créneau vient d’être complété. Choisissez-en un autre.";S.slot=null;S.step=2;window.scrollTo(0,0);chargerSlots();}
     else if(m.indexOf("creneau_invalide")>-1){S.msg="Ce créneau n’est plus disponible. Choisissez-en un autre.";S.slot=null;S.step=2;window.scrollTo(0,0);chargerSlots();}
+    else if(m.indexOf("telephone_invalide")>-1){S.err="Numéro invalide. Entrez 8 chiffres (ex : 70123456).";render();}
     else{S.err="La réservation a échoué. Réessayez dans un instant.";render();}
   });
 }
@@ -192,7 +197,13 @@ function render(){
   }else if(S.step===3){
     h='<div class="card">'+back(2)+'<h2>4. Vos informations</h2>'+
       '<input id="nom" placeholder="Nom et prénom" value="'+esc(S.nom)+'">'+
-      '<input id="tel" type="tel" placeholder="Téléphone (pour l’alerte)" value="'+esc(S.tel)+'">'+
+      '<input id="tel" type="tel" placeholder="Téléphone (ex : 70 12 34 56)" value="'+esc(S.tel)+'">'+
+      '<div class="note" style="margin:-2px 0 10px">Le +226 est ajouté automatiquement.</div>'+
+      '<h2 style="margin-top:6px">Recevoir l’alerte par</h2>'+
+      '<div style="display:flex;gap:8px;margin-bottom:10px">'+
+      '<button class="slot'+(S.canal==="push"?' sel':'')+'" style="flex:1" onclick="pickCanal(\'push\')">Notification</button>'+
+      '<button class="slot'+(S.canal==="sms"?' sel':'')+'" style="flex:1" onclick="pickCanal(\'sms\')">SMS</button>'+
+      '<button class="slot'+(S.canal==="both"?' sel':'')+'" style="flex:1" onclick="pickCanal(\'both\')">Les deux</button></div>'+
       '<div class="err" id="err">'+esc(S.err)+'</div>'+
       '<button class="btn"'+(S.busy?' disabled':'')+' onclick="valider()">'+(S.busy?'Réservation en cours…':'Réserver mon ticket')+'</button></div>';
   }else{
@@ -203,7 +214,8 @@ function render(){
       '<div class="row"><span>Opération</span><span>'+esc(S.op)+'</span></div>'+
       '<div class="row"><span>Créneau</span><span>'+hhmm(S.slot)+'</span></div>'+
       '<div class="row"><span>Alerte prévue à</span><span>'+hhmmMoins(S.slot,30)+'</span></div>'+
-      '<div class="row"><span>Notification</span><span>'+(S.pushOk?'activée':'non activée')+'</span></div>'+
+      '<div class="row"><span>Alerte par</span><span>'+({push:"Notification",sms:"SMS",both:"Notification + SMS"}[S.canalFinal]||"")+'</span></div>'+
+      (S.canal!==S.canalFinal?'<div class="note" style="margin-top:6px">Notifications non autorisées : l’alerte sera envoyée par SMS.</div>':'')+
       '<div class="row"><span>Attente sans réservation</span><span>~'+Math.round(w)+' min</span></div>';
     if(S.fin===0){
       h+='<button class="btn alt" onclick="alerteTest()">Tester la notification (dans 10 s)</button>';
