@@ -1,4 +1,4 @@
-const CACHE = 'ticketalert-v3';
+const CACHE = 'montour-v4';
 const FILES = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-maskable-512.png'];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
@@ -21,12 +21,12 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data.json(); } catch (_) { d = { body: e.data ? e.data.text() : '' }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'TicketAlert', {
+  e.waitUntil(self.registration.showNotification(d.title || 'MonTour', {
     body: d.body || '',
     icon: 'icon-192.png',
     badge: 'icon-192.png',
     vibrate: [200, 100, 200],
-    tag: d.tag || 'ticketalert',
+    tag: d.tag || 'montour',
     data: d
   }));
 });

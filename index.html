@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#1f4e79">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
-<title>TicketAlert – Réservation</title>
+<title>MonTour – Réservation</title>
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
 --bg:#f6f8fb;--card:#fff;--tx:#1b2430;--mu:#5d6b7c;--ac:#1f4e79;--on:#fff;--ac2:#dce6f1;--ln:#dde3ea;--ok:#1d7a46}
@@ -45,7 +45,8 @@ input{width:100%;padding:11px;border-radius:8px;border:1px solid var(--ln);backg
 </head>
 <body>
 <main>
-<h1>TicketAlert</h1>
+<h1>MonTour</h1>
+<p style="margin:2px 0 0;color:var(--mu);font-size:14px">Votre tour, sans l’attente.</p>
 <div class="steps" id="steps"></div>
 <div id="view"></div>
 <p class="note">Version de test : les réservations sont enregistrées sur le serveur. L’alerte est envoyée automatiquement 30 min avant le créneau, par notification et/ou SMS selon votre choix.</p>
@@ -143,10 +144,10 @@ function alerteTest(){
     setTimeout(function(){
       if('serviceWorker' in navigator){
         navigator.serviceWorker.ready.then(function(r){
-          r.showNotification('TicketAlert',{body:texte,icon:'icon-192.png',badge:'icon-192.png',vibrate:[200,100,200],tag:'ticketalert'});
+          r.showNotification('MonTour',{body:texte,icon:'icon-192.png',badge:'icon-192.png',vibrate:[200,100,200],tag:'ticketalert'});
         });
       }else if(window.Notification&&Notification.permission==='granted'){
-        new Notification('TicketAlert',{body:texte});
+        new Notification('MonTour',{body:texte});
       }
     },10000);
   }
@@ -220,7 +221,7 @@ function render(){
     if(S.fin===0){
       h+='<button class="btn alt" onclick="alerteTest()">Tester la notification (dans 10 s)</button>';
     }else if(S.fin===1){
-      h+='<div class="sms"><b>Alerte · TicketAlert</b><br>'+esc(S.nom.split(" ")[0])+', c’est bientôt votre tour ! Partez maintenant pour l’'+esc(S.ag.nom)+' (créneau '+hhmm(S.slot)+'). Code : '+esc(S.code)+'.</div>'+
+      h+='<div class="sms"><b>Alerte · MonTour</b><br>'+esc(S.nom.split(" ")[0])+', c’est bientôt votre tour ! Partez maintenant pour l’'+esc(S.ag.nom)+' (créneau '+hhmm(S.slot)+'). Code : '+esc(S.code)+'.</div>'+
          '<button class="btn" onclick="S.fin=2;render()">Je suis arrivé</button>';
     }else if(S.fin===2){
       h+='<div class="sms"><span class="ok">Arrivée confirmée.</span><br>Présentez le code <b>'+esc(S.code)+'</b> à l’accueil pour le passage prioritaire.</div>'+

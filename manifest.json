@@ -1,7 +1,7 @@
 {
-  "name": "TicketAlert",
-  "short_name": "TicketAlert",
-  "description": "Réservez votre ticket bancaire à distance et recevez une alerte avant votre tour.",
+  "name": "MonTour",
+  "short_name": "MonTour",
+  "description": "Réservez votre créneau à la banque et recevez une alerte avant votre tour.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",
